@@ -18,6 +18,12 @@ export interface BackendRideOption {
   // Dispatch and vehicle mapping fields
   dispatchService: string;      // e.g., "ride_aletwende", "delivery_motorbike"
   vehicleCategory: string;     // e.g., "car", "minibus", "motorbike", "truck"
+  pricingCategory?: string;    // Backend pricing category
+  // Truck-specific metadata (returned by backend)
+  tonnage?: string;            // e.g., "1.5", "2", "3"
+  cargoType?: string;          // e.g., "open", "closed", "refrigerated"
+  refrigerationType?: string;  // e.g., "standard", "deep_freeze"
+  recommended?: boolean;       // Whether this is the recommended option
 }
 
 // Maps backend category to the real vehicle category for dispatching
@@ -119,13 +125,38 @@ export function buildDispatchService(category: string, serviceType: string): str
 /**
  * Enrich a BackendRideOption with dispatchService and vehicleCategory
  * Requires serviceType context to build the correct dispatchService prefix
+ * Preserves all backend metadata (tonnage, cargoType, refrigerationType, recommended, pricingCategory)
  */
 export function enrichRideOption(option: BackendRideOption, serviceType: string): BackendRideOption {
+  // For truck options, use the backend-provided dispatchService if available
+  const dispatchService = option.dispatchService || buildDispatchService(option.category, serviceType);
+  
   return {
     ...option,
-    dispatchService: buildDispatchService(option.category, serviceType),
-    vehicleCategory: CATEGORY_TO_VEHICLE_CATEGORY[option.category] || 'car',
+    dispatchService,
+    vehicleCategory: option.vehicleCategory || CATEGORY_TO_VEHICLE_CATEGORY[option.category] || 'car',
+    // Preserve truck-specific metadata from backend
+    pricingCategory: option.pricingCategory,
+    tonnage: option.tonnage,
+    cargoType: option.cargoType,
+    refrigerationType: option.refrigerationType,
+    recommended: option.recommended,
   };
+}
+
+/**
+ * Sort options with recommended first, then by enabled status
+ */
+export function sortOptionsWithRecommendedFirst(options: BackendRideOption[]): BackendRideOption[] {
+  return [...options].sort((a, b) => {
+    // Recommended comes first
+    if (a.recommended && !b.recommended) return -1;
+    if (!a.recommended && b.recommended) return 1;
+    // Then enabled comes before disabled
+    if (a.enabled && !b.enabled) return -1;
+    if (!a.enabled && b.enabled) return 1;
+    return 0;
+  });
 }
 
 // Single source of truth for all vehicle types

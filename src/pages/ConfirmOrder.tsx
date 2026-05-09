@@ -80,7 +80,7 @@ export const ConfirmOrder: React.FC<ConfirmOrderProps> = ({
     orderType = 'ride',
     type = '',
     orderData = {},
-    serviceType,
+    serviceType: navServiceType, // Explicit serviceType from navigation
     vehicle,
     extraSelection,
     pickupAddress,
@@ -89,6 +89,9 @@ export const ConfirmOrder: React.FC<ConfirmOrderProps> = ({
     pickupCoords,
     destinationCoords
   } = location.state || {};
+
+  // Use explicit serviceType from navigation if provided, otherwise infer
+  const serviceType = navServiceType || orderData.serviceType;
 
   const isDelivery = orderType === 'delivery';
   const isFood = orderType === 'food';
@@ -127,6 +130,9 @@ export const ConfirmOrder: React.FC<ConfirmOrderProps> = ({
    * - Hardware: serviceType = "delivery", category = "hardware"
    * - Truck: serviceType = "delivery_truck"
    * - Towing: serviceType = "towing"
+   * 
+   * CRITICAL: Frontend MUST use the EXACT serviceType that matches the flow.
+   * DO NOT hardcode "ride" for delivery orders!
    */
   const createUnifiedOrder = async (): Promise<string> => {
     const currentUser = auth.currentUser;
@@ -138,35 +144,81 @@ export const ConfirmOrder: React.FC<ConfirmOrderProps> = ({
     let svcType: ServiceType = 'ride';
     let category: CategoryType | undefined = undefined;
     let subType: string | undefined = undefined;
+    let selectedVehicleTitle: string | undefined = undefined;
+    let dispatchServiceValue: string | undefined = undefined;
 
-    // Map to exact spec: serviceType + category
+    // CRITICAL: Map to exact spec based on flow type
+    // Priority order: explicit serviceType from navigation > orderData > inferred from type
+    
     if (serviceType === 'package') {
+      // Send My Package flow -> serviceType: "courier", category: "package"
       svcType = 'courier';
       category = 'package';
       subType = vehicle?.id || 'motorbike';
     } else if (serviceType === 'towing') {
+      // Towing flow -> serviceType: "towing"
       svcType = 'towing';
       subType = vehicle?.id || extraSelection || 'flatbed';
     } else if (serviceType === 'truck') {
+      // Truck delivery flow -> serviceType: "delivery_truck"
       svcType = 'delivery_truck';
-      subType = vehicle?.id || extraSelection || 'closed';
+      // Use backend-provided dispatchService and vehicle title
+      subType = vehicle?.dispatchService || vehicle?.id || extraSelection || 'closed';
+      selectedVehicleTitle = vehicle?.title || vehicle?.name;
+      dispatchServiceValue = vehicle?.dispatchService;
     } else if (isFood || type === 'food') {
+      // Foodies flow -> serviceType: "courier", category: "food"
       svcType = 'courier';
       category = 'food';
-      subType = orderData.deliveryMode?.id || 'motorbike';
+      subType = orderData.dispatchService || orderData.deliveryMode?.id || 'motorbike';
+      dispatchServiceValue = orderData.dispatchService;
     } else if (type === 'clothes') {
+      // Clothes flow -> serviceType: "courier", category: "clothes"
       svcType = 'courier';
       category = 'clothes';
-      subType = orderData.deliveryMode?.id || 'motorbike';
+      subType = orderData.dispatchService || orderData.deliveryMode?.id || 'motorbike';
+      dispatchServiceValue = orderData.dispatchService;
     } else if (isDelivery || type === 'hardware') {
+      // Hardware flow -> serviceType: "delivery", category: "hardware"
       svcType = 'delivery';
       category = 'hardware';
-      subType = orderData.deliveryMode?.id || 'car';
+      subType = orderData.dispatchService || orderData.deliveryMode?.id || 'car';
+      dispatchServiceValue = orderData.dispatchService;
     } else if (isRide) {
+      // Ride flow -> serviceType: "ride"
       svcType = 'ride';
       // For rides, subType is the vehicle class (economy, premium, xl, etc.)
       subType = rideData?.pricingId || rideData?.vehicleCategory || 'economy';
+      dispatchServiceValue = rideData?.dispatchService;
     }
+
+    // Debug log for verification
+    console.log('[v0] createUnifiedOrder - serviceType mapping:', {
+      category: category,
+      serviceType: svcType,
+      subType: subType,
+      dispatchService: dispatchServiceValue,
+      originalServiceType: serviceType,
+      type: type,
+      isRide: isRide,
+      isDelivery: isDelivery,
+      isFood: isFood
+    });
+
+    // Determine the correct selectedVehicle and dispatchService values
+    // For trucks: use backend-provided title (e.g., "1.5 ton refrigerated truck")
+    // For other services: use the selected vehicle ID or category
+    const finalSelectedVehicle = selectedVehicleTitle 
+      || (isRide ? rideData?.selectedVehicle || rideData?.pricingId : undefined)
+      || orderData.selectedVehicle 
+      || orderData.deliveryMode?.id 
+      || vehicle?.id 
+      || '';
+
+    const finalDispatchService = dispatchServiceValue 
+      || (isRide ? rideData?.dispatchService : undefined)
+      || orderData.dispatchService 
+      || '';
 
     // Build order input with EXACT document structure
     const orderInput: CreateOrderInput = {
@@ -175,12 +227,12 @@ export const ConfirmOrder: React.FC<ConfirmOrderProps> = ({
       userName,
       userEmail,
       
-      // Service identification (REQUIRED)
+      // Service identification (REQUIRED) - USING CORRECT VALUES
       serviceType: svcType,
       category,
       subType,
-      selectedVehicle: isRide ? rideData?.selectedVehicle || rideData?.pricingId : (orderData.selectedVehicle || vehicle?.id || orderData.deliveryMode?.id || ''),
-      dispatchService: isRide ? rideData?.dispatchService : (orderData.dispatchService || ''),
+      selectedVehicle: finalSelectedVehicle,
+      dispatchService: finalDispatchService,
 
       // Locations (exact spec format)
       pickupAddress: finalPickup || pickupAddress || '',
