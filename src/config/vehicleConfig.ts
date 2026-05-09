@@ -145,7 +145,7 @@ export const VEHICLE_CONFIG: Record<string, VehicleConfigItem> = {
   delivery_car: { label: 'Delivery Car', image: '/cars/economy.png' },
   delivery_bakkie: { label: 'Bakkie', image: '/cars/bakkie.png' },
   delivery_van: { label: 'Van', image: '/cars/van.png' },
-  delivery_truck: { label: 'Truck', image: '/cars/closed_truck.png' },
+  delivery_truck: { label: 'Truck', image: '/cars/refrigerated_truck.png' },
   delivery_truck_closed: { label: 'Closed Truck', image: '/cars/closed_truck.png' },
   delivery_truck_flatbed: { label: 'Flatbed Truck', image: '/cars/open_truck.png' },
   delivery_truck_refrigerated: { label: 'Refrigerated Truck', image: '/cars/refrigerated_truck.png' },
