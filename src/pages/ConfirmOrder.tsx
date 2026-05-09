@@ -93,16 +93,40 @@ export const ConfirmOrder: React.FC<ConfirmOrderProps> = ({
   // Use explicit serviceType from navigation if provided, otherwise infer
   const serviceType = navServiceType || orderData.serviceType;
 
+  // Determine order type - MUST use correct logic for all flows
+  // delivery = food, clothes, hardware (store-based delivery)
+  // ride = ride service (passenger transport)  
+  // service = package, towing, truck (special services)
   const isDelivery = orderType === 'delivery';
-  const isFood = orderType === 'food';
+  const isFood = orderType === 'food' || type === 'food';
+  const isClothes = type === 'clothes';
+  const isHardware = type === 'hardware';
   const isRide = orderType === 'ride' && rideData;
+  
+  // isStoreDelivery covers all store-based delivery flows (food, clothes, hardware)
+  const isStoreDelivery = isDelivery || isFood || isClothes || isHardware;
+  
+  // isService covers special services (package, towing, truck) that don't have stores
+  const isService = serviceType === 'package' || serviceType === 'towing' || serviceType === 'truck';
 
-  const isDeliveryOrFood = isDelivery || isFood;
-  const finalDestination = isRide ? destinationAddress : (isDeliveryOrFood ? orderData.destinationAddress : destination);
-  const finalPickup = isRide ? pickupAddress : (isDeliveryOrFood ? (orderData.storeAddress || orderData.pickupAddress) : pickup);
-  const finalStops = isDeliveryOrFood ? (orderData.stops || []) : stops;
-
-  const isService = serviceType && serviceType !== 'ride';
+  // Get final addresses based on flow type
+  const finalDestination = isRide 
+    ? destinationAddress 
+    : isStoreDelivery 
+      ? orderData.destinationAddress 
+      : isService 
+        ? destinationAddress 
+        : destination;
+        
+  const finalPickup = isRide 
+    ? pickupAddress 
+    : isStoreDelivery 
+      ? (orderData.storeAddress || orderData.storeName || orderData.pickupAddress) 
+      : isService 
+        ? pickupAddress 
+        : pickup;
+        
+  const finalStops = isStoreDelivery ? (orderData.stops || []) : stops;
 
   const getServiceLabel = () => {
     if (serviceType === 'package') return 'Package Delivery';
@@ -166,19 +190,19 @@ export const ConfirmOrder: React.FC<ConfirmOrderProps> = ({
       subType = vehicle?.dispatchService || vehicle?.id || extraSelection || 'closed';
       selectedVehicleTitle = vehicle?.title || vehicle?.name;
       dispatchServiceValue = vehicle?.dispatchService;
-    } else if (isFood || type === 'food') {
+    } else if (type === 'food' || isFood) {
       // Foodies flow -> serviceType: "courier", category: "food"
       svcType = 'courier';
       category = 'food';
       subType = orderData.dispatchService || orderData.deliveryMode?.id || 'motorbike';
       dispatchServiceValue = orderData.dispatchService;
-    } else if (type === 'clothes') {
+    } else if (type === 'clothes' || isClothes) {
       // Clothes flow -> serviceType: "courier", category: "clothes"
       svcType = 'courier';
       category = 'clothes';
       subType = orderData.dispatchService || orderData.deliveryMode?.id || 'motorbike';
       dispatchServiceValue = orderData.dispatchService;
-    } else if (isDelivery || type === 'hardware') {
+    } else if (type === 'hardware' || isHardware) {
       // Hardware flow -> serviceType: "delivery", category: "hardware"
       svcType = 'delivery';
       category = 'hardware';
@@ -260,7 +284,7 @@ export const ConfirmOrder: React.FC<ConfirmOrderProps> = ({
     };
 
     // Add items for store-based orders (food, clothes, hardware)
-    if (isDelivery || isFood || category === 'food' || category === 'clothes' || category === 'hardware') {
+    if (isStoreDelivery || category === 'food' || category === 'clothes' || category === 'hardware') {
       const cleanItems = (orderData.items || []).map((item: any) => ({
         id: item.id || '',
         name: item.name || '',
@@ -331,8 +355,8 @@ export const ConfirmOrder: React.FC<ConfirmOrderProps> = ({
       // Determine navigation destination based on SERVICE FLOW:
       // RIDE-LIKE FLOW (no store): ride, package, towing, truck -> /waiting-for-driver
       // STORE FLOW: food, clothes, hardware -> /order-tracking
-      const isStoreFlow = isDelivery || isFood || type === 'food' || type === 'clothes' || type === 'hardware';
-      const isRideLikeFlow = isRide || serviceType === 'package' || serviceType === 'towing' || serviceType === 'truck';
+      const isStoreFlow = isStoreDelivery;
+      const isRideLikeFlow = isRide || isService;
       
       const navigateTo = isStoreFlow ? '/order-tracking' : '/waiting-for-driver';
 
@@ -421,12 +445,12 @@ export const ConfirmOrder: React.FC<ConfirmOrderProps> = ({
           {isService ? (
             <div className="text-center">
               <h2 className="text-2xl font-bold text-gray-900 mb-1">{vehicle?.name || getServiceLabel()}</h2>
-              <p className="text-gray-500 text-sm">{vehicle?.eta || 'Ready for pickup'}</p>
+              <p className="text-gray-500 text-sm">{vehicle?.eta ? `${vehicle.eta} min away` : 'Ready for pickup'}</p>
             </div>
-          ) : (isDelivery || isFood) ? (
+          ) : isStoreDelivery ? (
             <div className="text-center">
               <h2 className="text-2xl font-bold text-gray-900 mb-1">{orderData.deliveryMode?.label || 'Delivery'}</h2>
-              <p className="text-gray-500 text-sm">{orderData.deliveryMode?.time || 'Ready for delivery'}</p>
+              <p className="text-gray-500 text-sm">{orderData.deliveryMode?.time ? `${orderData.deliveryMode.time} away` : 'Ready for delivery'}</p>
             </div>
           ) : isRide && rideData ? (
             <div className="text-center">
@@ -445,7 +469,7 @@ export const ConfirmOrder: React.FC<ConfirmOrderProps> = ({
         <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
           {isService ? (
             <>
-              {/* Trip Details for Service */}
+              {/* Trip Details for Service (package, towing, truck) */}
               <div className="bg-gray-50 rounded-xl p-4">
                 <h3 className="font-semibold text-gray-900 mb-3">Trip Details</h3>
                 <div className="space-y-3 text-sm">
@@ -453,14 +477,14 @@ export const ConfirmOrder: React.FC<ConfirmOrderProps> = ({
                     <div className="w-3 h-3 bg-[#5B2EFF] rounded-full mt-1 flex-shrink-0"></div>
                     <div>
                       <span className="text-gray-500 text-xs">Pickup</span>
-                      <p className="text-gray-900 font-medium">{pickupAddress || 'Not specified'}</p>
+                      <p className="text-gray-900 font-medium">{pickupAddress || finalPickup || 'Not specified'}</p>
                     </div>
                   </div>
                   <div className="flex items-start gap-3">
                     <div className="w-3 h-3 bg-blue-600 rounded-full mt-1 flex-shrink-0"></div>
                     <div>
                       <span className="text-gray-500 text-xs">Destination</span>
-                      <p className="text-gray-900 font-medium">{destinationAddress || 'Not specified'}</p>
+                      <p className="text-gray-900 font-medium">{destinationAddress || finalDestination || 'Not specified'}</p>
                     </div>
                   </div>
                 </div>
@@ -494,9 +518,9 @@ export const ConfirmOrder: React.FC<ConfirmOrderProps> = ({
                 </div>
               </div>
             </>
-          ) : (isDelivery || isFood) ? (
+          ) : isStoreDelivery ? (
             <>
-              {/* Trip Details for Delivery/Food */}
+              {/* Trip Details for Store Delivery (food, clothes, hardware) */}
               <div className="bg-gray-50 rounded-xl p-4">
                 <h3 className="font-semibold text-gray-900 mb-3">Trip Details</h3>
                 <div className="space-y-3 text-sm">
@@ -504,14 +528,14 @@ export const ConfirmOrder: React.FC<ConfirmOrderProps> = ({
                     <div className="w-3 h-3 bg-[#5B2EFF] rounded-full mt-1 flex-shrink-0"></div>
                     <div>
                       <span className="text-gray-500 text-xs">Pickup</span>
-                      <p className="text-gray-900 font-medium">{orderData.storeAddress || orderData.storeName || orderData.pickupAddress || 'Store'}</p>
+                      <p className="text-gray-900 font-medium">{finalPickup || 'Store'}</p>
                     </div>
                   </div>
                   <div className="flex items-start gap-3">
                     <div className="w-3 h-3 bg-blue-600 rounded-full mt-1 flex-shrink-0"></div>
                     <div>
                       <span className="text-gray-500 text-xs">Destination</span>
-                      <p className="text-gray-900 font-medium">{orderData.destinationAddress || 'Not specified'}</p>
+                      <p className="text-gray-900 font-medium">{finalDestination || 'Not specified'}</p>
                     </div>
                   </div>
                 </div>
@@ -532,7 +556,7 @@ export const ConfirmOrder: React.FC<ConfirmOrderProps> = ({
               {orderData.items && orderData.items.length > 0 && (
                 <div className="bg-gray-50 rounded-xl p-4">
                   <h3 className="font-semibold text-gray-900 mb-3">
-                    {isFood || type === 'food' ? 'Food Items' : 'Items'} ({orderData.items.length})
+                    {isFood || type === 'food' ? 'Food Items' : type === 'clothes' ? 'Clothing Items' : 'Items'} ({orderData.items.length})
                   </h3>
                   <div className="space-y-2 max-h-32 overflow-y-auto">
                     {orderData.items.map((item: any, idx: number) => (
