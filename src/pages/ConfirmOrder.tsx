@@ -101,13 +101,17 @@ export const ConfirmOrder: React.FC<ConfirmOrderProps> = ({
   const isFood = orderType === 'food' || type === 'food';
   const isClothes = type === 'clothes';
   const isHardware = type === 'hardware';
-  const isRide = orderType === 'ride' && rideData;
+  
+  // isService covers special services (package, towing, truck) that don't have stores
+  // MUST be checked BEFORE isRide since serviceType takes priority
+  const isService = serviceType === 'package' || serviceType === 'towing' || serviceType === 'truck';
+  
+  // isRide is true ONLY if this is a ride flow AND NOT a service flow
+  // CRITICAL: Package/Truck flows should NOT be treated as rides even if rideData is present
+  const isRide = orderType === 'ride' && rideData && !isService;
   
   // isStoreDelivery covers all store-based delivery flows (food, clothes, hardware)
   const isStoreDelivery = isDelivery || isFood || isClothes || isHardware;
-  
-  // isService covers special services (package, towing, truck) that don't have stores
-  const isService = serviceType === 'package' || serviceType === 'towing' || serviceType === 'truck';
 
   // Get final addresses based on flow type
   const finalDestination = isRide 
