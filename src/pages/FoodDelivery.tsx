@@ -303,16 +303,6 @@ export function FoodDelivery() {
     const storeAddress = routeData.storeAddress || cart[0]?.storeAddress || '';
     const storeLocation = routeData.storeLocation || { lat: null, lng: null };
 
-    // Debug log for verification
-    console.log('[v0] FoodDelivery - navigating to confirm-order:', {
-      category: category,
-      serviceType: serviceType,
-      dispatchService: selectedOption.dispatchService,
-      selectedVehicle: selectedOption.category,
-      vehicleCategory: selectedOption.vehicleCategory,
-      pricingCategory: selectedOption.pricingCategory
-    });
-
     navigate('/confirm-order', {
       state: {
         orderType: 'delivery',

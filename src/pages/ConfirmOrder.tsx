@@ -192,18 +192,7 @@ export const ConfirmOrder: React.FC<ConfirmOrderProps> = ({
       dispatchServiceValue = rideData?.dispatchService;
     }
 
-    // Debug log for verification
-    console.log('[v0] createUnifiedOrder - serviceType mapping:', {
-      category: category,
-      serviceType: svcType,
-      subType: subType,
-      dispatchService: dispatchServiceValue,
-      originalServiceType: serviceType,
-      type: type,
-      isRide: isRide,
-      isDelivery: isDelivery,
-      isFood: isFood
-    });
+
 
     // Determine the correct selectedVehicle and dispatchService values
     // For trucks: use backend-provided title (e.g., "1.5 ton refrigerated truck")
@@ -422,85 +411,129 @@ export const ConfirmOrder: React.FC<ConfirmOrderProps> = ({
       </motion.div>
 
       <motion.div
-        className="fixed bottom-0 left-0 right-0 bg-white rounded-t-3xl shadow-2xl p-6 z-20 max-h-[80vh] overflow-y-auto"
+        className="fixed bottom-0 left-0 right-0 bg-white rounded-t-3xl shadow-2xl z-20 max-h-[80vh] flex flex-col"
         initial={{ y: 200, opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}
         transition={{ type: "spring", damping: 25, stiffness: 200, delay: 0.2 }}
       >
-        <div className="space-y-6">
+        {/* STATIC HEADER - Vehicle title and ETA */}
+        <div className="flex-shrink-0 px-6 pt-6 pb-4 border-b border-gray-100">
+          {isService ? (
+            <div className="text-center">
+              <h2 className="text-2xl font-bold text-gray-900 mb-1">{vehicle?.name || getServiceLabel()}</h2>
+              <p className="text-gray-500 text-sm">{vehicle?.eta || 'Ready for pickup'}</p>
+            </div>
+          ) : (isDelivery || isFood) ? (
+            <div className="text-center">
+              <h2 className="text-2xl font-bold text-gray-900 mb-1">{orderData.deliveryMode?.label || 'Delivery'}</h2>
+              <p className="text-gray-500 text-sm">{orderData.deliveryMode?.time || 'Ready for delivery'}</p>
+            </div>
+          ) : isRide && rideData ? (
+            <div className="text-center">
+              <h2 className="text-2xl font-bold text-gray-900 mb-1">{rideData.name}</h2>
+              <p className="text-gray-500 text-sm">{rideData.eta} away</p>
+            </div>
+          ) : (
+            <div className="text-center">
+              <h2 className="text-2xl font-bold text-gray-900 mb-1">{carType || 'Order'}</h2>
+              <p className="text-gray-500 text-sm">Ready</p>
+            </div>
+          )}
+        </div>
+
+        {/* SCROLLABLE CONTENT - Order details, addresses, payment */}
+        <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
           {isService ? (
             <>
-              <div className="text-center">
-                <h2 className="text-2xl font-bold text-gray-900 mb-2">{getServiceLabel()}</h2>
-                <p className="text-gray-600">{vehicle?.description}</p>
-                <p className="text-sm text-gray-500">{vehicle?.eta}</p>
-              </div>
-
+              {/* Trip Details for Service */}
               <div className="bg-gray-50 rounded-xl p-4">
-                <h3 className="font-semibold text-gray-900 mb-3">Service Details</h3>
-                <div className="space-y-2 text-sm">
-                  <div className="flex justify-between">
-                    <span className="text-gray-600">Pickup:</span>
-                    <span className="text-gray-900 font-medium">{pickupAddress}</span>
+                <h3 className="font-semibold text-gray-900 mb-3">Trip Details</h3>
+                <div className="space-y-3 text-sm">
+                  <div className="flex items-start gap-3">
+                    <div className="w-3 h-3 bg-[#5B2EFF] rounded-full mt-1 flex-shrink-0"></div>
+                    <div>
+                      <span className="text-gray-500 text-xs">Pickup</span>
+                      <p className="text-gray-900 font-medium">{pickupAddress || 'Not specified'}</p>
+                    </div>
                   </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-600">Destination:</span>
-                    <span className="text-gray-900 font-medium">{destinationAddress}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-600">Vehicle:</span>
-                    <span className="text-gray-900 font-medium">{vehicle?.name}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-600">{getExtraSelectionLabel()}:</span>
-                    <span className="text-gray-900 font-medium">{extraSelection}</span>
+                  <div className="flex items-start gap-3">
+                    <div className="w-3 h-3 bg-blue-600 rounded-full mt-1 flex-shrink-0"></div>
+                    <div>
+                      <span className="text-gray-500 text-xs">Destination</span>
+                      <p className="text-gray-900 font-medium">{destinationAddress || 'Not specified'}</p>
+                    </div>
                   </div>
                 </div>
               </div>
 
+              {/* Delivery/Towing Details - NO passengers */}
+              <div className="bg-gray-50 rounded-xl p-4">
+                <h3 className="font-semibold text-gray-900 mb-3">
+                  {serviceType === 'towing' ? 'Towing Details' : 'Delivery Details'}
+                </h3>
+                <div className="space-y-2 text-sm">
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">Delivery Type</span>
+                    <span className="text-gray-900 font-medium">{vehicle?.name || getServiceLabel()}</span>
+                  </div>
+                  {extraSelection && (
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">{getExtraSelectionLabel()}</span>
+                      <span className="text-gray-900 font-medium">{extraSelection}</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Payment Summary */}
               <div className="bg-gray-50 rounded-xl p-4 space-y-2">
-                <h3 className="font-semibold text-gray-900 mb-3">Pricing</h3>
+                <h3 className="font-semibold text-gray-900 mb-3">Payment Summary</h3>
                 <div className="flex justify-between pt-2 border-t border-gray-200">
                   <span className="font-semibold text-gray-900">Total</span>
                   <span className="text-lg font-bold text-gray-900">R {vehicle?.price || 0}</span>
                 </div>
               </div>
             </>
-          ) : isDelivery ? (
+          ) : (isDelivery || isFood) ? (
             <>
-              <div className="text-center">
-                <h2 className="text-2xl font-bold text-gray-900 mb-2">{orderData.deliveryMode?.label}</h2>
-                <p className="text-gray-600">{orderData.deliveryMode?.description}</p>
-                <p className="text-sm text-gray-500">{orderData.deliveryMode?.time}</p>
+              {/* Trip Details for Delivery/Food */}
+              <div className="bg-gray-50 rounded-xl p-4">
+                <h3 className="font-semibold text-gray-900 mb-3">Trip Details</h3>
+                <div className="space-y-3 text-sm">
+                  <div className="flex items-start gap-3">
+                    <div className="w-3 h-3 bg-[#5B2EFF] rounded-full mt-1 flex-shrink-0"></div>
+                    <div>
+                      <span className="text-gray-500 text-xs">Pickup</span>
+                      <p className="text-gray-900 font-medium">{orderData.storeAddress || orderData.storeName || orderData.pickupAddress || 'Store'}</p>
+                    </div>
+                  </div>
+                  <div className="flex items-start gap-3">
+                    <div className="w-3 h-3 bg-blue-600 rounded-full mt-1 flex-shrink-0"></div>
+                    <div>
+                      <span className="text-gray-500 text-xs">Destination</span>
+                      <p className="text-gray-900 font-medium">{orderData.destinationAddress || 'Not specified'}</p>
+                    </div>
+                  </div>
+                </div>
               </div>
 
+              {/* Delivery Details - NO passengers */}
               <div className="bg-gray-50 rounded-xl p-4">
                 <h3 className="font-semibold text-gray-900 mb-3">Delivery Details</h3>
                 <div className="space-y-2 text-sm">
                   <div className="flex justify-between">
-                    <span className="text-gray-600">From:</span>
-                    <span className="text-gray-900 font-medium text-right max-w-[200px] truncate">
-                      {orderData.storeAddress || orderData.storeName || 'Store'}
-                    </span>
+                    <span className="text-gray-600">Delivery Type</span>
+                    <span className="text-gray-900 font-medium">{orderData.deliveryMode?.label || 'Standard'}</span>
                   </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-600">To:</span>
-                    <span className="text-gray-900 font-medium text-right max-w-[200px] truncate">
-                      {orderData.destinationAddress}
-                    </span>
-                  </div>
-                  {orderData.stops && orderData.stops.length > 0 && (
-                    <div className="flex justify-between">
-                      <span className="text-gray-600">Stops:</span>
-                      <span className="text-gray-900 font-medium">{orderData.stops.length}</span>
-                    </div>
-                  )}
                 </div>
               </div>
 
+              {/* Items */}
               {orderData.items && orderData.items.length > 0 && (
                 <div className="bg-gray-50 rounded-xl p-4">
-                  <h3 className="font-semibold text-gray-900 mb-3">Items ({orderData.items.length})</h3>
+                  <h3 className="font-semibold text-gray-900 mb-3">
+                    {isFood || type === 'food' ? 'Food Items' : 'Items'} ({orderData.items.length})
+                  </h3>
                   <div className="space-y-2 max-h-32 overflow-y-auto">
                     {orderData.items.map((item: any, idx: number) => (
                       <div key={idx} className="flex justify-between text-sm">
@@ -512,6 +545,7 @@ export const ConfirmOrder: React.FC<ConfirmOrderProps> = ({
                 </div>
               )}
 
+              {/* Payment Summary */}
               <div className="bg-gray-50 rounded-xl p-4 space-y-2">
                 <h3 className="font-semibold text-gray-900 mb-3">Payment Summary</h3>
                 <div className="flex justify-between text-sm">
@@ -520,80 +554,17 @@ export const ConfirmOrder: React.FC<ConfirmOrderProps> = ({
                 </div>
                 <div className="flex justify-between text-sm">
                   <span className="text-gray-600">Delivery fee</span>
-                  <span className="font-medium text-gray-900">R {orderData.deliveryFee}</span>
+                  <span className="font-medium text-gray-900">R {orderData.deliveryFee || 0}</span>
                 </div>
                 <div className="flex justify-between pt-2 border-t border-gray-200">
                   <span className="font-semibold text-gray-900">Total</span>
-                  <span className="text-lg font-bold text-gray-900">R {orderData.totalPrice}</span>
-                </div>
-              </div>
-            </>
-          ) : isFood ? (
-            <>
-              <div className="text-center">
-                <h2 className="text-2xl font-bold text-gray-900 mb-2">{orderData.deliveryMode?.label}</h2>
-                <p className="text-gray-600">{orderData.deliveryMode?.description}</p>
-                <p className="text-sm text-gray-500">{orderData.deliveryMode?.time}</p>
-              </div>
-
-              <div className="bg-gray-50 rounded-xl p-4">
-                <h3 className="font-semibold text-gray-900 mb-3">Delivery Details</h3>
-                <div className="space-y-2 text-sm">
-                  <div className="flex justify-between">
-                    <span className="text-gray-600">From:</span>
-                    <span className="text-gray-900 font-medium">{orderData.pickupAddress}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-600">To:</span>
-                    <span className="text-gray-900 font-medium">{orderData.destinationAddress}</span>
-                  </div>
-                  {orderData.stops && orderData.stops.length > 0 && (
-                    <div className="flex justify-between">
-                      <span className="text-gray-600">Stops:</span>
-                      <span className="text-gray-900 font-medium">{orderData.stops.length}</span>
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {orderData.items && orderData.items.length > 0 && (
-                <div className="bg-gray-50 rounded-xl p-4">
-                  <h3 className="font-semibold text-gray-900 mb-3">Food Items</h3>
-                  <div className="space-y-2 max-h-32 overflow-y-auto">
-                    {orderData.items.map((item: any, idx: number) => (
-                      <div key={idx} className="flex justify-between text-sm">
-                        <span className="text-gray-700">{item.name}</span>
-                        <span className="font-medium text-gray-900">R {item.price}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              <div className="bg-gray-50 rounded-xl p-4 space-y-2">
-                <h3 className="font-semibold text-gray-900 mb-3">Payment Summary</h3>
-                <div className="flex justify-between text-sm">
-                  <span className="text-gray-600">Food subtotal</span>
-                  <span className="font-medium text-gray-900">R {orderData.foodSubtotal}</span>
-                </div>
-                <div className="flex justify-between text-sm">
-                  <span className="text-gray-600">Delivery fee</span>
-                  <span className="font-medium text-gray-900">R {orderData.deliveryFee}</span>
-                </div>
-                <div className="flex justify-between pt-2 border-t border-gray-200">
-                  <span className="font-semibold text-gray-900">Total</span>
-                  <span className="text-lg font-bold text-gray-900">R {orderData.totalPrice}</span>
+                  <span className="text-lg font-bold text-gray-900">R {orderData.totalPrice || 0}</span>
                 </div>
               </div>
             </>
           ) : isRide && rideData ? (
-            // New ride confirmation display
+            // Ride confirmation display - WITH passengers
             <>
-              <div className="text-center">
-                <h2 className="text-2xl font-bold text-gray-900 mb-2">{rideData.name}</h2>
-                <p className="text-gray-600">{rideData.eta} away</p>
-              </div>
-
               <div className="bg-gray-50 rounded-xl p-4">
                 <h3 className="font-semibold text-gray-900 mb-3">Trip Details</h3>
                 <div className="space-y-3 text-sm">
@@ -630,6 +601,7 @@ export const ConfirmOrder: React.FC<ConfirmOrderProps> = ({
                     <span className="text-gray-600">Ride Type</span>
                     <span className="text-gray-900 font-medium">{rideData.name}</span>
                   </div>
+                  {/* Passengers - ONLY for rides */}
                   <div className="flex justify-between items-center">
                     <span className="text-gray-600">Passengers</span>
                     <div className="flex items-center gap-1">
@@ -661,16 +633,18 @@ export const ConfirmOrder: React.FC<ConfirmOrderProps> = ({
           ) : (
             // Fallback display
             <>
-              <div className="text-center">
-                <h2 className="text-2xl font-bold text-gray-900">{finalDestination}</h2>
-                <div className="flex items-center justify-center space-x-4 mt-4">
+              <div className="text-center py-4">
+                <div className="flex items-center justify-center space-x-4">
                   <span className="text-lg font-medium text-gray-700">{carType}</span>
                   <span className="text-2xl font-bold text-gray-900">R {price}</span>
                 </div>
               </div>
             </>
           )}
+        </div>
 
+        {/* STATIC FOOTER - Confirm button */}
+        <div className="flex-shrink-0 px-6 pb-6 pt-4 border-t border-gray-100 bg-white">
           <motion.button
             onClick={handleConfirmOrder}
             disabled={isLoading || isRideActive}
