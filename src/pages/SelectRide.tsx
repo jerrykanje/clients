@@ -302,21 +302,42 @@ export const SelectRide: React.FC<SelectRideProps> = ({
       // Apply promo discount to price
       const discountedPrice = Math.round(selectedRide.price * (1 - promoDiscount / 100));
       
-      // Navigate to confirm order with all ride data
+      // CRITICAL: Pass serviceType to ConfirmOrder so it knows which flow this is
+      // For package/truck/towing, serviceType MUST be passed, NOT orderType: 'ride'
+      const isServiceFlow = serviceType === 'package' || serviceType === 'towing' || serviceType === 'truck';
+      
+      // Navigate to confirm order with all ride/service data
       navigate('/confirm-order', {
         state: {
-          orderType: 'ride',
-          rideData: {
-            pricingId: selectedRide.category,
-            name: selectedRide.title,
-            estimatedPrice: discountedPrice,
-            originalPrice: selectedRide.price,
-            eta: `${selectedRide.eta} min`,
-            vehicleCategory: selectedRide.vehicleCategory,
-            seats: selectedRide.seats,
-            dispatchService: selectedRide.dispatchService,
-            selectedVehicle: selectedRide.category,
-          },
+          // For service flows, pass orderType as the serviceType so ConfirmOrder can identify the flow
+          orderType: isServiceFlow ? serviceType : 'ride',
+          // ALWAYS pass serviceType explicitly so ConfirmOrder doesn't have to infer
+          serviceType: serviceType,
+          // For service flows, pass vehicle data instead of rideData
+          ...(isServiceFlow ? {
+            vehicle: {
+              id: selectedRide.category,
+              name: selectedRide.title,
+              title: selectedRide.title,
+              price: discountedPrice,
+              eta: selectedRide.eta,
+              dispatchService: selectedRide.dispatchService,
+              vehicleCategory: selectedRide.vehicleCategory,
+            },
+            extraSelection: extraOption,
+          } : {
+            rideData: {
+              pricingId: selectedRide.category,
+              name: selectedRide.title,
+              estimatedPrice: discountedPrice,
+              originalPrice: selectedRide.price,
+              eta: `${selectedRide.eta} min`,
+              vehicleCategory: selectedRide.vehicleCategory,
+              seats: selectedRide.seats,
+              dispatchService: selectedRide.dispatchService,
+              selectedVehicle: selectedRide.category,
+            },
+          }),
           pickupAddress: navPickup || pickup,
           destinationAddress: navDestination || destination,
           stops: navStops.length > 0 ? navStops : stops,
