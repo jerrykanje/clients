@@ -10,6 +10,7 @@ import {
   createOrder, 
   ServiceType,
   CategoryType,
+  WorkflowType,
   CreateOrderInput 
 } from '../services/orderService';
 
@@ -174,6 +175,11 @@ export const ConfirmOrder: React.FC<ConfirmOrderProps> = ({
     let subType: string | undefined = undefined;
     let selectedVehicleTitle: string | undefined = undefined;
     let dispatchServiceValue: string | undefined = undefined;
+    
+    // REQUIRED: Determine workflowType for backend dispatch logic
+    // "store_delivery" = food, clothes, hardware (wait for store ready_for_pickup)
+    // "direct_trip" = ride, package, delivery_truck, towing (dispatch immediately)
+    let workflowType: WorkflowType = 'direct_trip'; // Default to direct_trip
 
     // CRITICAL: Map to exact spec based on flow type
     // Priority order: explicit serviceType from navigation > orderData > inferred from type
@@ -182,6 +188,7 @@ export const ConfirmOrder: React.FC<ConfirmOrderProps> = ({
       // Send My Package flow -> serviceType: "courier", category: "package"
       svcType = 'courier';
       category = 'package';
+      workflowType = 'direct_trip'; // Package is direct trip
       // IMPORTANT: Use backend dispatchService, DO NOT hardcode
       subType = vehicle?.dispatchService || vehicle?.id || 'delivery_motorbike';
       // SAVE dispatch service from backend
@@ -190,10 +197,12 @@ export const ConfirmOrder: React.FC<ConfirmOrderProps> = ({
     } else if (serviceType === 'towing') {
       // Towing flow -> serviceType: "towing"
       svcType = 'towing';
+      workflowType = 'direct_trip'; // Towing is direct trip
       subType = vehicle?.id || extraSelection || 'flatbed';
     } else if (serviceType === 'truck') {
       // Truck delivery flow -> serviceType: "delivery_truck"
       svcType = 'delivery_truck';
+      workflowType = 'direct_trip'; // Delivery truck is direct trip
       // Use backend-provided dispatchService and vehicle title
       subType = vehicle?.dispatchService || vehicle?.id || extraSelection || 'closed';
       selectedVehicleTitle = vehicle?.title || vehicle?.name;
@@ -202,23 +211,27 @@ export const ConfirmOrder: React.FC<ConfirmOrderProps> = ({
       // Foodies flow -> serviceType: "courier", category: "food"
       svcType = 'courier';
       category = 'food';
+      workflowType = 'store_delivery'; // Food is store delivery
       subType = orderData.dispatchService || orderData.deliveryMode?.id || 'motorbike';
       dispatchServiceValue = orderData.dispatchService;
     } else if (type === 'clothes' || isClothes) {
       // Clothes flow -> serviceType: "courier", category: "clothes"
       svcType = 'courier';
       category = 'clothes';
+      workflowType = 'store_delivery'; // Clothes is store delivery
       subType = orderData.dispatchService || orderData.deliveryMode?.id || 'motorbike';
       dispatchServiceValue = orderData.dispatchService;
     } else if (type === 'hardware' || isHardware) {
       // Hardware flow -> serviceType: "delivery", category: "hardware"
       svcType = 'delivery';
       category = 'hardware';
+      workflowType = 'store_delivery'; // Hardware is store delivery
       subType = orderData.dispatchService || orderData.deliveryMode?.id || 'car';
       dispatchServiceValue = orderData.dispatchService;
     } else if (isRide) {
       // Ride flow -> serviceType: "ride"
       svcType = 'ride';
+      workflowType = 'direct_trip'; // Ride is direct trip
       // For rides, subType is the vehicle class (economy, premium, xl, etc.)
       subType = rideData?.pricingId || rideData?.vehicleCategory || 'economy';
       dispatchServiceValue = rideData?.dispatchService;
@@ -250,6 +263,10 @@ export const ConfirmOrder: React.FC<ConfirmOrderProps> = ({
       
       // Service identification (REQUIRED) - USING CORRECT VALUES
       serviceType: svcType,
+      
+      // REQUIRED: Workflow type for backend dispatch logic
+      workflowType,
+      
       category,
       subType,
       selectedVehicle: finalSelectedVehicle,
