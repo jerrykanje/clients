@@ -182,7 +182,11 @@ export const ConfirmOrder: React.FC<ConfirmOrderProps> = ({
       // Send My Package flow -> serviceType: "courier", category: "package"
       svcType = 'courier';
       category = 'package';
-      subType = vehicle?.id || 'motorbike';
+      // IMPORTANT: Use backend dispatchService, DO NOT hardcode
+      subType = vehicle?.dispatchService || vehicle?.id || 'delivery_motorbike';
+      // SAVE dispatch service from backend
+      dispatchServiceValue = vehicle?.dispatchService;
+      selectedVehicleTitle = vehicle?.title || vehicle?.name;
     } else if (serviceType === 'towing') {
       // Towing flow -> serviceType: "towing"
       svcType = 'towing';
