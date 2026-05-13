@@ -10,6 +10,7 @@ import {
   createOrder, 
   ServiceType,
   CategoryType,
+  WorkflowType,
   CreateOrderInput 
 } from '../services/orderService';
 
@@ -80,7 +81,7 @@ export const ConfirmOrder: React.FC<ConfirmOrderProps> = ({
     orderType = 'ride',
     type = '',
     orderData = {},
-    serviceType,
+    serviceType: navServiceType, // Explicit serviceType from navigation
     vehicle,
     extraSelection,
     pickupAddress,
@@ -90,16 +91,47 @@ export const ConfirmOrder: React.FC<ConfirmOrderProps> = ({
     destinationCoords
   } = location.state || {};
 
+  // Use explicit serviceType from navigation if provided, otherwise infer
+  const serviceType = navServiceType || orderData.serviceType;
+
+  // Determine order type - MUST use correct logic for all flows
+  // delivery = food, clothes, hardware (store-based delivery)
+  // ride = ride service (passenger transport)  
+  // service = package, towing, truck (special services)
   const isDelivery = orderType === 'delivery';
-  const isFood = orderType === 'food';
-  const isRide = orderType === 'ride' && rideData;
+  const isFood = orderType === 'food' || type === 'food';
+  const isClothes = type === 'clothes';
+  const isHardware = type === 'hardware';
+  
+  // isService covers special services (package, towing, truck) that don't have stores
+  // MUST be checked BEFORE isRide since serviceType takes priority
+  const isService = serviceType === 'package' || serviceType === 'towing' || serviceType === 'truck';
+  
+  // isRide is true ONLY if this is a ride flow AND NOT a service flow
+  // CRITICAL: Package/Truck flows should NOT be treated as rides even if rideData is present
+  const isRide = orderType === 'ride' && rideData && !isService;
+  
+  // isStoreDelivery covers all store-based delivery flows (food, clothes, hardware)
+  const isStoreDelivery = isDelivery || isFood || isClothes || isHardware;
 
-  const isDeliveryOrFood = isDelivery || isFood;
-  const finalDestination = isRide ? destinationAddress : (isDeliveryOrFood ? orderData.destinationAddress : destination);
-  const finalPickup = isRide ? pickupAddress : (isDeliveryOrFood ? (orderData.storeAddress || orderData.pickupAddress) : pickup);
-  const finalStops = isDeliveryOrFood ? (orderData.stops || []) : stops;
-
-  const isService = serviceType && serviceType !== 'ride';
+  // Get final addresses based on flow type
+  const finalDestination = isRide 
+    ? destinationAddress 
+    : isStoreDelivery 
+      ? orderData.destinationAddress 
+      : isService 
+        ? destinationAddress 
+        : destination;
+        
+  const finalPickup = isRide 
+    ? pickupAddress 
+    : isStoreDelivery 
+      ? (orderData.storeAddress || orderData.storeName || orderData.pickupAddress) 
+      : isService 
+        ? pickupAddress 
+        : pickup;
+        
+  const finalStops = isStoreDelivery ? (orderData.stops || []) : stops;
 
   const getServiceLabel = () => {
     if (serviceType === 'package') return 'Package Delivery';
@@ -127,6 +159,9 @@ export const ConfirmOrder: React.FC<ConfirmOrderProps> = ({
    * - Hardware: serviceType = "delivery", category = "hardware"
    * - Truck: serviceType = "delivery_truck"
    * - Towing: serviceType = "towing"
+   * 
+   * CRITICAL: Frontend MUST use the EXACT serviceType that matches the flow.
+   * DO NOT hardcode "ride" for delivery orders!
    */
   const createUnifiedOrder = async (): Promise<string> => {
     const currentUser = auth.currentUser;
@@ -138,35 +173,86 @@ export const ConfirmOrder: React.FC<ConfirmOrderProps> = ({
     let svcType: ServiceType = 'ride';
     let category: CategoryType | undefined = undefined;
     let subType: string | undefined = undefined;
+    let selectedVehicleTitle: string | undefined = undefined;
+    let dispatchServiceValue: string | undefined = undefined;
+    
+    // REQUIRED: Determine workflowType for backend dispatch logic
+    // "store_delivery" = food, clothes, hardware (wait for store ready_for_pickup)
+    // "direct_trip" = ride, package, delivery_truck, towing (dispatch immediately)
+    let workflowType: WorkflowType = 'direct_trip'; // Default to direct_trip
 
-    // Map to exact spec: serviceType + category
+    // CRITICAL: Map to exact spec based on flow type
+    // Priority order: explicit serviceType from navigation > orderData > inferred from type
+    
     if (serviceType === 'package') {
+      // Send My Package flow -> serviceType: "courier", category: "package"
       svcType = 'courier';
       category = 'package';
-      subType = vehicle?.id || 'motorbike';
+      workflowType = 'direct_trip'; // Package is direct trip
+      // IMPORTANT: Use backend dispatchService, DO NOT hardcode
+      subType = vehicle?.dispatchService || vehicle?.id || 'delivery_motorbike';
+      // SAVE dispatch service from backend
+      dispatchServiceValue = vehicle?.dispatchService;
+      selectedVehicleTitle = vehicle?.title || vehicle?.name;
     } else if (serviceType === 'towing') {
+      // Towing flow -> serviceType: "towing"
       svcType = 'towing';
+      workflowType = 'direct_trip'; // Towing is direct trip
       subType = vehicle?.id || extraSelection || 'flatbed';
     } else if (serviceType === 'truck') {
+      // Truck delivery flow -> serviceType: "delivery_truck"
       svcType = 'delivery_truck';
-      subType = vehicle?.id || extraSelection || 'closed';
-    } else if (isFood || type === 'food') {
+      workflowType = 'direct_trip'; // Delivery truck is direct trip
+      // Use backend-provided dispatchService and vehicle title
+      subType = vehicle?.dispatchService || vehicle?.id || extraSelection || 'closed';
+      selectedVehicleTitle = vehicle?.title || vehicle?.name;
+      dispatchServiceValue = vehicle?.dispatchService;
+    } else if (type === 'food' || isFood) {
+      // Foodies flow -> serviceType: "courier", category: "food"
       svcType = 'courier';
       category = 'food';
-      subType = orderData.deliveryMode?.id || 'motorbike';
-    } else if (type === 'clothes') {
+      workflowType = 'store_delivery'; // Food is store delivery
+      subType = orderData.dispatchService || orderData.deliveryMode?.id || 'motorbike';
+      dispatchServiceValue = orderData.dispatchService;
+    } else if (type === 'clothes' || isClothes) {
+      // Clothes flow -> serviceType: "courier", category: "clothes"
       svcType = 'courier';
       category = 'clothes';
-      subType = orderData.deliveryMode?.id || 'motorbike';
-    } else if (isDelivery || type === 'hardware') {
+      workflowType = 'store_delivery'; // Clothes is store delivery
+      subType = orderData.dispatchService || orderData.deliveryMode?.id || 'motorbike';
+      dispatchServiceValue = orderData.dispatchService;
+    } else if (type === 'hardware' || isHardware) {
+      // Hardware flow -> serviceType: "delivery", category: "hardware"
       svcType = 'delivery';
       category = 'hardware';
-      subType = orderData.deliveryMode?.id || 'car';
+      workflowType = 'store_delivery'; // Hardware is store delivery
+      subType = orderData.dispatchService || orderData.deliveryMode?.id || 'car';
+      dispatchServiceValue = orderData.dispatchService;
     } else if (isRide) {
+      // Ride flow -> serviceType: "ride"
       svcType = 'ride';
+      workflowType = 'direct_trip'; // Ride is direct trip
       // For rides, subType is the vehicle class (economy, premium, xl, etc.)
       subType = rideData?.pricingId || rideData?.vehicleCategory || 'economy';
+      dispatchServiceValue = rideData?.dispatchService;
     }
+
+
+
+    // Determine the correct selectedVehicle and dispatchService values
+    // For trucks: use backend-provided title (e.g., "1.5 ton refrigerated truck")
+    // For other services: use the selected vehicle ID or category
+    const finalSelectedVehicle = selectedVehicleTitle 
+      || (isRide ? rideData?.selectedVehicle || rideData?.pricingId : undefined)
+      || orderData.selectedVehicle 
+      || orderData.deliveryMode?.id 
+      || vehicle?.id 
+      || '';
+
+    const finalDispatchService = dispatchServiceValue 
+      || (isRide ? rideData?.dispatchService : undefined)
+      || orderData.dispatchService 
+      || '';
 
     // Build order input with EXACT document structure
     const orderInput: CreateOrderInput = {
@@ -175,12 +261,16 @@ export const ConfirmOrder: React.FC<ConfirmOrderProps> = ({
       userName,
       userEmail,
       
-      // Service identification (REQUIRED)
+      // Service identification (REQUIRED) - USING CORRECT VALUES
       serviceType: svcType,
+      
+      // REQUIRED: Workflow type for backend dispatch logic
+      workflowType,
+      
       category,
       subType,
-      selectedVehicle: isRide ? rideData?.selectedVehicle || rideData?.pricingId : (orderData.selectedVehicle || vehicle?.id || orderData.deliveryMode?.id || ''),
-      dispatchService: isRide ? rideData?.dispatchService : (orderData.dispatchService || ''),
+      selectedVehicle: finalSelectedVehicle,
+      dispatchService: finalDispatchService,
 
       // Locations (exact spec format)
       pickupAddress: finalPickup || pickupAddress || '',
@@ -219,7 +309,7 @@ export const ConfirmOrder: React.FC<ConfirmOrderProps> = ({
     };
 
     // Add items for store-based orders (food, clothes, hardware)
-    if (isDelivery || isFood || category === 'food' || category === 'clothes' || category === 'hardware') {
+    if (isStoreDelivery || category === 'food' || category === 'clothes' || category === 'hardware') {
       const cleanItems = (orderData.items || []).map((item: any) => ({
         id: item.id || '',
         name: item.name || '',
@@ -290,8 +380,8 @@ export const ConfirmOrder: React.FC<ConfirmOrderProps> = ({
       // Determine navigation destination based on SERVICE FLOW:
       // RIDE-LIKE FLOW (no store): ride, package, towing, truck -> /waiting-for-driver
       // STORE FLOW: food, clothes, hardware -> /order-tracking
-      const isStoreFlow = isDelivery || isFood || type === 'food' || type === 'clothes' || type === 'hardware';
-      const isRideLikeFlow = isRide || serviceType === 'package' || serviceType === 'towing' || serviceType === 'truck';
+      const isStoreFlow = isStoreDelivery;
+      const isRideLikeFlow = isRide || isService;
       
       const navigateTo = isStoreFlow ? '/order-tracking' : '/waiting-for-driver';
 
@@ -370,85 +460,129 @@ export const ConfirmOrder: React.FC<ConfirmOrderProps> = ({
       </motion.div>
 
       <motion.div
-        className="fixed bottom-0 left-0 right-0 bg-white rounded-t-3xl shadow-2xl p-6 z-20 max-h-[80vh] overflow-y-auto"
+        className="fixed bottom-0 left-0 right-0 bg-white rounded-t-3xl shadow-2xl z-20 max-h-[80vh] flex flex-col"
         initial={{ y: 200, opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}
         transition={{ type: "spring", damping: 25, stiffness: 200, delay: 0.2 }}
       >
-        <div className="space-y-6">
+        {/* STATIC HEADER - Vehicle title and ETA */}
+        <div className="flex-shrink-0 px-6 pt-6 pb-4 border-b border-gray-100">
+          {isService ? (
+            <div className="text-center">
+              <h2 className="text-2xl font-bold text-gray-900 mb-1">{vehicle?.name || getServiceLabel()}</h2>
+              <p className="text-gray-500 text-sm">{vehicle?.eta ? `${vehicle.eta} min away` : 'Ready for pickup'}</p>
+            </div>
+          ) : isStoreDelivery ? (
+            <div className="text-center">
+              <h2 className="text-2xl font-bold text-gray-900 mb-1">{orderData.deliveryMode?.label || 'Delivery'}</h2>
+              <p className="text-gray-500 text-sm">{orderData.deliveryMode?.time ? `${orderData.deliveryMode.time} away` : 'Ready for delivery'}</p>
+            </div>
+          ) : isRide && rideData ? (
+            <div className="text-center">
+              <h2 className="text-2xl font-bold text-gray-900 mb-1">{rideData.name}</h2>
+              <p className="text-gray-500 text-sm">{rideData.eta} away</p>
+            </div>
+          ) : (
+            <div className="text-center">
+              <h2 className="text-2xl font-bold text-gray-900 mb-1">{carType || 'Order'}</h2>
+              <p className="text-gray-500 text-sm">Ready</p>
+            </div>
+          )}
+        </div>
+
+        {/* SCROLLABLE CONTENT - Order details, addresses, payment */}
+        <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
           {isService ? (
             <>
-              <div className="text-center">
-                <h2 className="text-2xl font-bold text-gray-900 mb-2">{getServiceLabel()}</h2>
-                <p className="text-gray-600">{vehicle?.description}</p>
-                <p className="text-sm text-gray-500">{vehicle?.eta}</p>
-              </div>
-
+              {/* Trip Details for Service (package, towing, truck) */}
               <div className="bg-gray-50 rounded-xl p-4">
-                <h3 className="font-semibold text-gray-900 mb-3">Service Details</h3>
-                <div className="space-y-2 text-sm">
-                  <div className="flex justify-between">
-                    <span className="text-gray-600">Pickup:</span>
-                    <span className="text-gray-900 font-medium">{pickupAddress}</span>
+                <h3 className="font-semibold text-gray-900 mb-3">Trip Details</h3>
+                <div className="space-y-3 text-sm">
+                  <div className="flex items-start gap-3">
+                    <div className="w-3 h-3 bg-[#5B2EFF] rounded-full mt-1 flex-shrink-0"></div>
+                    <div>
+                      <span className="text-gray-500 text-xs">Pickup</span>
+                      <p className="text-gray-900 font-medium">{pickupAddress || finalPickup || 'Not specified'}</p>
+                    </div>
                   </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-600">Destination:</span>
-                    <span className="text-gray-900 font-medium">{destinationAddress}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-600">Vehicle:</span>
-                    <span className="text-gray-900 font-medium">{vehicle?.name}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-600">{getExtraSelectionLabel()}:</span>
-                    <span className="text-gray-900 font-medium">{extraSelection}</span>
+                  <div className="flex items-start gap-3">
+                    <div className="w-3 h-3 bg-blue-600 rounded-full mt-1 flex-shrink-0"></div>
+                    <div>
+                      <span className="text-gray-500 text-xs">Destination</span>
+                      <p className="text-gray-900 font-medium">{destinationAddress || finalDestination || 'Not specified'}</p>
+                    </div>
                   </div>
                 </div>
               </div>
 
+              {/* Delivery/Towing Details - NO passengers */}
+              <div className="bg-gray-50 rounded-xl p-4">
+                <h3 className="font-semibold text-gray-900 mb-3">
+                  {serviceType === 'towing' ? 'Towing Details' : 'Delivery Details'}
+                </h3>
+                <div className="space-y-2 text-sm">
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">Delivery Type</span>
+                    <span className="text-gray-900 font-medium">{vehicle?.name || getServiceLabel()}</span>
+                  </div>
+                  {extraSelection && (
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">{getExtraSelectionLabel()}</span>
+                      <span className="text-gray-900 font-medium">{extraSelection}</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Payment Summary */}
               <div className="bg-gray-50 rounded-xl p-4 space-y-2">
-                <h3 className="font-semibold text-gray-900 mb-3">Pricing</h3>
+                <h3 className="font-semibold text-gray-900 mb-3">Payment Summary</h3>
                 <div className="flex justify-between pt-2 border-t border-gray-200">
                   <span className="font-semibold text-gray-900">Total</span>
                   <span className="text-lg font-bold text-gray-900">R {vehicle?.price || 0}</span>
                 </div>
               </div>
             </>
-          ) : isDelivery ? (
+          ) : isStoreDelivery ? (
             <>
-              <div className="text-center">
-                <h2 className="text-2xl font-bold text-gray-900 mb-2">{orderData.deliveryMode?.label}</h2>
-                <p className="text-gray-600">{orderData.deliveryMode?.description}</p>
-                <p className="text-sm text-gray-500">{orderData.deliveryMode?.time}</p>
+              {/* Trip Details for Store Delivery (food, clothes, hardware) */}
+              <div className="bg-gray-50 rounded-xl p-4">
+                <h3 className="font-semibold text-gray-900 mb-3">Trip Details</h3>
+                <div className="space-y-3 text-sm">
+                  <div className="flex items-start gap-3">
+                    <div className="w-3 h-3 bg-[#5B2EFF] rounded-full mt-1 flex-shrink-0"></div>
+                    <div>
+                      <span className="text-gray-500 text-xs">Pickup</span>
+                      <p className="text-gray-900 font-medium">{finalPickup || 'Store'}</p>
+                    </div>
+                  </div>
+                  <div className="flex items-start gap-3">
+                    <div className="w-3 h-3 bg-blue-600 rounded-full mt-1 flex-shrink-0"></div>
+                    <div>
+                      <span className="text-gray-500 text-xs">Destination</span>
+                      <p className="text-gray-900 font-medium">{finalDestination || 'Not specified'}</p>
+                    </div>
+                  </div>
+                </div>
               </div>
 
+              {/* Delivery Details - NO passengers */}
               <div className="bg-gray-50 rounded-xl p-4">
                 <h3 className="font-semibold text-gray-900 mb-3">Delivery Details</h3>
                 <div className="space-y-2 text-sm">
                   <div className="flex justify-between">
-                    <span className="text-gray-600">From:</span>
-                    <span className="text-gray-900 font-medium text-right max-w-[200px] truncate">
-                      {orderData.storeAddress || orderData.storeName || 'Store'}
-                    </span>
+                    <span className="text-gray-600">Delivery Type</span>
+                    <span className="text-gray-900 font-medium">{orderData.deliveryMode?.label || 'Standard'}</span>
                   </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-600">To:</span>
-                    <span className="text-gray-900 font-medium text-right max-w-[200px] truncate">
-                      {orderData.destinationAddress}
-                    </span>
-                  </div>
-                  {orderData.stops && orderData.stops.length > 0 && (
-                    <div className="flex justify-between">
-                      <span className="text-gray-600">Stops:</span>
-                      <span className="text-gray-900 font-medium">{orderData.stops.length}</span>
-                    </div>
-                  )}
                 </div>
               </div>
 
+              {/* Items */}
               {orderData.items && orderData.items.length > 0 && (
                 <div className="bg-gray-50 rounded-xl p-4">
-                  <h3 className="font-semibold text-gray-900 mb-3">Items ({orderData.items.length})</h3>
+                  <h3 className="font-semibold text-gray-900 mb-3">
+                    {isFood || type === 'food' ? 'Food Items' : type === 'clothes' ? 'Clothing Items' : 'Items'} ({orderData.items.length})
+                  </h3>
                   <div className="space-y-2 max-h-32 overflow-y-auto">
                     {orderData.items.map((item: any, idx: number) => (
                       <div key={idx} className="flex justify-between text-sm">
@@ -460,6 +594,7 @@ export const ConfirmOrder: React.FC<ConfirmOrderProps> = ({
                 </div>
               )}
 
+              {/* Payment Summary */}
               <div className="bg-gray-50 rounded-xl p-4 space-y-2">
                 <h3 className="font-semibold text-gray-900 mb-3">Payment Summary</h3>
                 <div className="flex justify-between text-sm">
@@ -468,80 +603,17 @@ export const ConfirmOrder: React.FC<ConfirmOrderProps> = ({
                 </div>
                 <div className="flex justify-between text-sm">
                   <span className="text-gray-600">Delivery fee</span>
-                  <span className="font-medium text-gray-900">R {orderData.deliveryFee}</span>
+                  <span className="font-medium text-gray-900">R {orderData.deliveryFee || 0}</span>
                 </div>
                 <div className="flex justify-between pt-2 border-t border-gray-200">
                   <span className="font-semibold text-gray-900">Total</span>
-                  <span className="text-lg font-bold text-gray-900">R {orderData.totalPrice}</span>
-                </div>
-              </div>
-            </>
-          ) : isFood ? (
-            <>
-              <div className="text-center">
-                <h2 className="text-2xl font-bold text-gray-900 mb-2">{orderData.deliveryMode?.label}</h2>
-                <p className="text-gray-600">{orderData.deliveryMode?.description}</p>
-                <p className="text-sm text-gray-500">{orderData.deliveryMode?.time}</p>
-              </div>
-
-              <div className="bg-gray-50 rounded-xl p-4">
-                <h3 className="font-semibold text-gray-900 mb-3">Delivery Details</h3>
-                <div className="space-y-2 text-sm">
-                  <div className="flex justify-between">
-                    <span className="text-gray-600">From:</span>
-                    <span className="text-gray-900 font-medium">{orderData.pickupAddress}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-600">To:</span>
-                    <span className="text-gray-900 font-medium">{orderData.destinationAddress}</span>
-                  </div>
-                  {orderData.stops && orderData.stops.length > 0 && (
-                    <div className="flex justify-between">
-                      <span className="text-gray-600">Stops:</span>
-                      <span className="text-gray-900 font-medium">{orderData.stops.length}</span>
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {orderData.items && orderData.items.length > 0 && (
-                <div className="bg-gray-50 rounded-xl p-4">
-                  <h3 className="font-semibold text-gray-900 mb-3">Food Items</h3>
-                  <div className="space-y-2 max-h-32 overflow-y-auto">
-                    {orderData.items.map((item: any, idx: number) => (
-                      <div key={idx} className="flex justify-between text-sm">
-                        <span className="text-gray-700">{item.name}</span>
-                        <span className="font-medium text-gray-900">R {item.price}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              <div className="bg-gray-50 rounded-xl p-4 space-y-2">
-                <h3 className="font-semibold text-gray-900 mb-3">Payment Summary</h3>
-                <div className="flex justify-between text-sm">
-                  <span className="text-gray-600">Food subtotal</span>
-                  <span className="font-medium text-gray-900">R {orderData.foodSubtotal}</span>
-                </div>
-                <div className="flex justify-between text-sm">
-                  <span className="text-gray-600">Delivery fee</span>
-                  <span className="font-medium text-gray-900">R {orderData.deliveryFee}</span>
-                </div>
-                <div className="flex justify-between pt-2 border-t border-gray-200">
-                  <span className="font-semibold text-gray-900">Total</span>
-                  <span className="text-lg font-bold text-gray-900">R {orderData.totalPrice}</span>
+                  <span className="text-lg font-bold text-gray-900">R {orderData.totalPrice || 0}</span>
                 </div>
               </div>
             </>
           ) : isRide && rideData ? (
-            // New ride confirmation display
+            // Ride confirmation display - WITH passengers
             <>
-              <div className="text-center">
-                <h2 className="text-2xl font-bold text-gray-900 mb-2">{rideData.name}</h2>
-                <p className="text-gray-600">{rideData.eta} away</p>
-              </div>
-
               <div className="bg-gray-50 rounded-xl p-4">
                 <h3 className="font-semibold text-gray-900 mb-3">Trip Details</h3>
                 <div className="space-y-3 text-sm">
@@ -578,6 +650,7 @@ export const ConfirmOrder: React.FC<ConfirmOrderProps> = ({
                     <span className="text-gray-600">Ride Type</span>
                     <span className="text-gray-900 font-medium">{rideData.name}</span>
                   </div>
+                  {/* Passengers - ONLY for rides */}
                   <div className="flex justify-between items-center">
                     <span className="text-gray-600">Passengers</span>
                     <div className="flex items-center gap-1">
@@ -609,16 +682,18 @@ export const ConfirmOrder: React.FC<ConfirmOrderProps> = ({
           ) : (
             // Fallback display
             <>
-              <div className="text-center">
-                <h2 className="text-2xl font-bold text-gray-900">{finalDestination}</h2>
-                <div className="flex items-center justify-center space-x-4 mt-4">
+              <div className="text-center py-4">
+                <div className="flex items-center justify-center space-x-4">
                   <span className="text-lg font-medium text-gray-700">{carType}</span>
                   <span className="text-2xl font-bold text-gray-900">R {price}</span>
                 </div>
               </div>
             </>
           )}
+        </div>
 
+        {/* STATIC FOOTER - Confirm button */}
+        <div className="flex-shrink-0 px-6 pb-6 pt-4 border-t border-gray-100 bg-white">
           <motion.button
             onClick={handleConfirmOrder}
             disabled={isLoading || isRideActive}

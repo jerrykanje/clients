@@ -6,6 +6,30 @@ import { useGlobalCart } from '../contexts/GlobalCartContext';
 import { fetchStoreById, fetchProductsByStore } from '../services/storeService';
 import { Product } from '../data/storesData';
 
+// Skeleton Card Component - Uber/Bolt style animated placeholder
+const ProductSkeletonCard: React.FC<{ index: number }> = ({ index }) => (
+  <motion.div
+    className="bg-white rounded-lg overflow-hidden shadow-sm"
+    initial={{ opacity: 0, y: 20 }}
+    animate={{ opacity: 1, y: 0 }}
+    transition={{ delay: index * 0.05 }}
+  >
+    {/* Image placeholder */}
+    <div className="h-32 bg-gray-200 animate-pulse" />
+    
+    <div className="p-3">
+      {/* Product name */}
+      <div className="h-4 w-24 bg-gray-200 rounded animate-pulse mb-2" />
+      
+      {/* Price and button row */}
+      <div className="flex items-center justify-between">
+        <div className="h-4 w-12 bg-gray-200 rounded animate-pulse" />
+        <div className="w-8 h-8 rounded-full bg-gray-200 animate-pulse" />
+      </div>
+    </div>
+  </motion.div>
+);
+
 export const OrderClothes: React.FC = () => {
   const { storeId } = useParams<{ storeId: string }>();
   const navigate = useNavigate();
@@ -106,10 +130,36 @@ export const OrderClothes: React.FC = () => {
 
   if (loading) {
     return (
-      <div className="flex flex-col h-screen items-center justify-center bg-gray-50">
-        <div className="w-12 h-12 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mb-4"></div>
-        <p className="text-gray-600">Loading products...</p>
-      </div>
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ duration: 0.3 }}
+        className="flex flex-col h-screen bg-gray-50"
+      >
+        {/* Header skeleton */}
+        <div className="fixed top-0 left-0 right-0 z-10 bg-white px-4 py-3 border-b border-gray-100">
+          <div className="flex items-center justify-between mb-3">
+            <div className="w-10 h-10 bg-gray-200 rounded-lg animate-pulse" />
+            <div className="w-6 h-6 bg-gray-200 rounded animate-pulse" />
+          </div>
+          <div className="h-3 w-20 bg-gray-200 rounded animate-pulse mb-2" />
+          <div className="h-6 w-40 bg-gray-200 rounded animate-pulse" />
+        </div>
+
+        {/* Products skeleton */}
+        <div className="flex-1 overflow-y-auto px-4 pb-24 pt-4" style={{ marginTop: '120px' }}>
+          <div className="grid grid-cols-2 gap-4">
+            {[0, 1, 2, 3, 4, 5].map((index) => (
+              <ProductSkeletonCard key={index} index={index} />
+            ))}
+          </div>
+        </div>
+
+        {/* Footer skeleton */}
+        <div className="fixed bottom-0 left-0 right-0 z-10 bg-white px-4 py-3 border-t border-gray-100">
+          <div className="h-12 bg-gray-200 rounded-lg animate-pulse" />
+        </div>
+      </motion.div>
     );
   }
 

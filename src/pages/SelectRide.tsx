@@ -9,7 +9,8 @@ import {
   BackendRideOption,
   getVehicleConfig,
   filterOptionsByService,
-  enrichRideOption
+  enrichRideOption,
+  sortOptionsWithRecommendedFirst
 } from '../config/vehicleConfig';
 
 interface SelectRideProps {
@@ -248,19 +249,29 @@ export const SelectRide: React.FC<SelectRideProps> = ({
     }
   }, [rawPanelVh]);
 
-  // Sort ride options based on filter
+  // Determine if this is a ride service (shows seats) or delivery service (hides seats)
+  const isRideService = serviceType === 'ride';
+
+  // Sort ride options based on filter - recommended first, then by filter criteria
   const getSortedRideOptions = (): BackendRideOption[] => {
-    let sorted = [...rideOptions];
+    // Start with recommended sorting
+    let sorted = sortOptionsWithRecommendedFirst(rideOptions);
 
     if (selectedFilter === 'faster') {
       sorted.sort((a, b) => {
-        // Available rides first
+        // Recommended still comes first
+        if (a.recommended && !b.recommended) return -1;
+        if (!a.recommended && b.recommended) return 1;
+        // Available rides before unavailable
         if (a.enabled && !b.enabled) return -1;
         if (!a.enabled && b.enabled) return 1;
         return a.eta - b.eta;
       });
     } else if (selectedFilter === 'cheaper') {
       sorted.sort((a, b) => {
+        // Recommended still comes first
+        if (a.recommended && !b.recommended) return -1;
+        if (!a.recommended && b.recommended) return 1;
         if (a.enabled && !b.enabled) return -1;
         if (!a.enabled && b.enabled) return 1;
         return a.price - b.price;
@@ -291,21 +302,42 @@ export const SelectRide: React.FC<SelectRideProps> = ({
       // Apply promo discount to price
       const discountedPrice = Math.round(selectedRide.price * (1 - promoDiscount / 100));
       
-      // Navigate to confirm order with all ride data
+      // CRITICAL: Pass serviceType to ConfirmOrder so it knows which flow this is
+      // For package/truck/towing, serviceType MUST be passed, NOT orderType: 'ride'
+      const isServiceFlow = serviceType === 'package' || serviceType === 'towing' || serviceType === 'truck';
+      
+      // Navigate to confirm order with all ride/service data
       navigate('/confirm-order', {
         state: {
-          orderType: 'ride',
-          rideData: {
-            pricingId: selectedRide.category,
-            name: selectedRide.title,
-            estimatedPrice: discountedPrice,
-            originalPrice: selectedRide.price,
-            eta: `${selectedRide.eta} min`,
-            vehicleCategory: selectedRide.vehicleCategory,
-            seats: selectedRide.seats,
-            dispatchService: selectedRide.dispatchService,
-            selectedVehicle: selectedRide.category,
-          },
+          // For service flows, pass orderType as the serviceType so ConfirmOrder can identify the flow
+          orderType: isServiceFlow ? serviceType : 'ride',
+          // ALWAYS pass serviceType explicitly so ConfirmOrder doesn't have to infer
+          serviceType: serviceType,
+          // For service flows, pass vehicle data instead of rideData
+          ...(isServiceFlow ? {
+            vehicle: {
+              id: selectedRide.category,
+              name: selectedRide.title,
+              title: selectedRide.title,
+              price: discountedPrice,
+              eta: selectedRide.eta,
+              dispatchService: selectedRide.dispatchService,
+              vehicleCategory: selectedRide.vehicleCategory,
+            },
+            extraSelection: extraOption,
+          } : {
+            rideData: {
+              pricingId: selectedRide.category,
+              name: selectedRide.title,
+              estimatedPrice: discountedPrice,
+              originalPrice: selectedRide.price,
+              eta: `${selectedRide.eta} min`,
+              vehicleCategory: selectedRide.vehicleCategory,
+              seats: selectedRide.seats,
+              dispatchService: selectedRide.dispatchService,
+              selectedVehicle: selectedRide.category,
+            },
+          }),
           pickupAddress: navPickup || pickup,
           destinationAddress: navDestination || destination,
           stops: navStops.length > 0 ? navStops : stops,
@@ -602,7 +634,14 @@ export const SelectRide: React.FC<SelectRideProps> = ({
                       </div>
                       <div className="flex-1 text-left">
                         <div className="flex items-center justify-between">
-                          <h3 className="font-bold text-gray-900">{option.title}</h3>
+                          <div className="flex items-center gap-2">
+                            <h3 className="font-bold text-gray-900">{option.title}</h3>
+                            {option.recommended && (
+                              <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-green-100 text-green-700">
+                                Recommended
+                              </span>
+                            )}
+                          </div>
                           <div className="text-right">
                             <p className="font-bold text-gray-900">R {discountedPrice}</p>
                             {discountedPrice !== option.price && (
@@ -614,10 +653,13 @@ export const SelectRide: React.FC<SelectRideProps> = ({
                           <span className={`text-sm ${option.enabled ? 'text-gray-600' : 'text-orange-600'}`}>
                             {formatEta(option.eta, option.enabled)}
                           </span>
-                          <div className="flex items-center space-x-1">
-                            <Users size={14} className="text-gray-500" />
-                            <span className="text-sm text-gray-600">{option.seats}</span>
-                          </div>
+                          {/* Only show seats for ride services, not delivery services */}
+                          {isRideService && (
+                            <div className="flex items-center space-x-1">
+                              <Users size={14} className="text-gray-500" />
+                              <span className="text-sm text-gray-600">{option.seats}</span>
+                            </div>
+                          )}
                         </div>
                         {!option.enabled && (
                           <span className="inline-block mt-2 px-2 py-1 rounded-full text-xs font-bold bg-orange-100 text-orange-800">

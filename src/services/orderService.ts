@@ -31,6 +31,9 @@ export type ServiceType =
 // Category types for courier and delivery
 export type CategoryType = 'food' | 'clothes' | 'package' | 'hardware';
 
+// Workflow type - determines backend dispatch behavior
+export type WorkflowType = 'store_delivery' | 'direct_trip';
+
 // SubType for vehicle class
 export type SubType = string; // e.g., "economy", "premium", "motorbike", "flatbed", etc.
 
@@ -208,6 +211,11 @@ export interface CreateOrderInput {
   userEmail?: string;
   serviceType: ServiceType;
   
+  // REQUIRED: Workflow type determines backend dispatch behavior
+  // "store_delivery" = wait for store ready_for_pickup (food, clothes, hardware)
+  // "direct_trip" = dispatch immediately (ride, package, delivery_truck, towing)
+  workflowType: WorkflowType;
+  
   // Category is REQUIRED for courier and delivery
   category?: CategoryType;
   
@@ -281,6 +289,9 @@ export async function createOrder(input: CreateOrderInput): Promise<string> {
   const order: Record<string, unknown> = {
     // Service identification (REQUIRED)
     serviceType: input.serviceType,
+    
+    // REQUIRED: Workflow type for backend dispatch logic
+    workflowType: input.workflowType,
     
     // Category (REQUIRED for courier and delivery)
     ...(input.category && { category: input.category }),

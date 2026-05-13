@@ -8,7 +8,8 @@ import {
   BackendRideOption,
   getVehicleConfig,
   filterOptionsByService,
-  enrichRideOption
+  enrichRideOption,
+  sortOptionsWithRecommendedFirst
 } from '../config/vehicleConfig';
 
 type FilterTab = 'standard' | 'faster' | 'cheaper';
@@ -202,18 +203,25 @@ export function FoodDelivery() {
     }
   }, [routeData, cart.length, navigate]);
 
-  // Get sorted delivery options
+  // Get sorted delivery options - recommended first, then by filter criteria
   const getSortedOptions = (): BackendRideOption[] => {
-    let sorted = [...deliveryOptions];
+    // Start with recommended sorting
+    let sorted = sortOptionsWithRecommendedFirst(deliveryOptions);
 
     if (selectedFilter === 'faster') {
       sorted.sort((a, b) => {
+        // Recommended still comes first
+        if (a.recommended && !b.recommended) return -1;
+        if (!a.recommended && b.recommended) return 1;
         if (a.enabled && !b.enabled) return -1;
         if (!a.enabled && b.enabled) return 1;
         return a.eta - b.eta;
       });
     } else if (selectedFilter === 'cheaper') {
       sorted.sort((a, b) => {
+        // Recommended still comes first
+        if (a.recommended && !b.recommended) return -1;
+        if (!a.recommended && b.recommended) return 1;
         if (a.enabled && !b.enabled) return -1;
         if (!a.enabled && b.enabled) return 1;
         return a.price - b.price;
@@ -299,18 +307,23 @@ export function FoodDelivery() {
       state: {
         orderType: 'delivery',
         type: category,
+        // Pass serviceType explicitly so ConfirmOrder doesn't have to infer it
+        serviceType: serviceType,
         orderData: {
           deliveryMode: {
             id: selectedOption.category,
             label: selectedOption.title,
             time: `${selectedOption.eta} min`,
-            description: `${selectedOption.seats} capacity`,
+            description: `Delivery vehicle`,
             deliveryFee: deliveryFee,
             originalFee: selectedOption.price
           },
+          // CRITICAL: Pass all backend metadata correctly
           dispatchService: selectedOption.dispatchService,
           vehicleCategory: selectedOption.vehicleCategory,
           selectedVehicle: selectedOption.category,
+          pricingCategory: selectedOption.pricingCategory,
+          // Store info
           storeId: storeId,
           storeName: storeName,
           storeAddress: storeAddress,
@@ -616,7 +629,14 @@ export function FoodDelivery() {
                       </div>
                       <div className="flex-1 text-left">
                         <div className="flex items-center justify-between">
-                          <h3 className="font-bold text-gray-900">{option.title}</h3>
+                          <div className="flex items-center gap-2">
+                            <h3 className="font-bold text-gray-900">{option.title}</h3>
+                            {option.recommended && (
+                              <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-green-100 text-green-700">
+                                Recommended
+                              </span>
+                            )}
+                          </div>
                           <div className="text-right">
                             <p className="font-bold text-gray-900">R {cardTotal}</p>
                             <p className="text-sm text-gray-500">R {discountedPrice} fee</p>
@@ -626,10 +646,7 @@ export function FoodDelivery() {
                           <span className={`text-sm ${option.enabled ? 'text-gray-600' : 'text-orange-600'}`}>
                             {formatEta(option.eta, option.enabled)}
                           </span>
-                          <div className="flex items-center space-x-1">
-                            <Users size={14} className="text-gray-500" />
-                            <span className="text-sm text-gray-600">{option.seats}</span>
-                          </div>
+                          {/* Seats hidden for delivery services - only show capacity info if needed */}
                         </div>
                         {!option.enabled && (
                           <span className="inline-block mt-2 px-2 py-1 rounded-full text-xs font-bold bg-orange-100 text-orange-800">
